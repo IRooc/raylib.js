@@ -40,6 +40,8 @@ class RaylibJs {
         this.entryFunction = undefined;
         this.prevPressedKeyState = new Set();
         this.currentPressedKeyState = new Set();
+        this.prevPressedMouseState = new Set();
+        this.currentPressedMouseState = new Set();
         this.currentMouseWheelMoveState = 0;
         this.currentMousePosition = {x: 0, y: 0};
         this.images = [];
@@ -79,6 +81,12 @@ class RaylibJs {
         const wheelMove = (e) => {
           this.currentMouseWheelMoveState = Math.sign(-e.deltaY);
         };
+        const mouseDown = (e) => {
+            this.currentPressedMouseState.add(mouseButtonMapping[e.button]);
+        };
+        const mouseUp = (e) => {
+            this.currentPressedMouseState.delete(mouseButtonMapping[e.button]);
+        };
         const mouseMove = (e) => {
             this.currentMousePosition = {x: e.clientX, y: e.clientY};
         };
@@ -86,6 +94,8 @@ class RaylibJs {
         window.addEventListener("keyup", keyUp);
         window.addEventListener("wheel", wheelMove);
         window.addEventListener("mousemove", mouseMove);
+        window.addEventListener("mousedown", mouseDown);
+        window.addEventListener("mouseup", mouseUp);
 
         this.wasm.instance.exports.main();
         const next = (timestamp) => {
@@ -141,6 +151,8 @@ class RaylibJs {
     EndDrawing() {
         this.prevPressedKeyState.clear();
         this.prevPressedKeyState = new Set(this.currentPressedKeyState);
+        this.prevPressedMouseState.clear();
+        this.prevPressedMouseState = new Set(this.currentPressedMouseState);
         this.currentMouseWheelMoveState = 0.0;
     }
 
@@ -149,6 +161,15 @@ class RaylibJs {
         const [x, y] = new Float32Array(buffer, center_ptr, 2);
         const [r, g, b, a] = new Uint8Array(buffer, color_ptr, 4);
         const color = color_hex_unpacked(r, g, b, a);
+        this.ctx.beginPath();
+        this.ctx.arc(x, y, radius, 0, 2*Math.PI, false);
+        this.ctx.fillStyle = color;
+        this.ctx.fill();
+    }
+    
+    DrawCircle(x, y, radius, color_ptr) {
+        const buffer = this.wasm.instance.exports.memory.buffer;
+        const color = getColorFromMemory(buffer, color_ptr);
         this.ctx.beginPath();
         this.ctx.arc(x, y, radius, 0, 2*Math.PI, false);
         this.ctx.fillStyle = color;
@@ -189,6 +210,12 @@ class RaylibJs {
     }
     IsKeyDown(key) {
         return this.currentPressedKeyState.has(key);
+    }
+    IsMouseButtonPressed(key) {
+        return !this.prevPressedMouseState.has(key) && this.currentPressedMouseState.has(key);
+    }
+    IsMouseDown(key) {
+        return this.currentPressedMouseState.has(key);
     }
     GetMouseWheelMove() {
       return this.currentMouseWheelMoveState;
@@ -344,7 +371,7 @@ class RaylibJs {
         this.ctx.fillText(text, posX, posY + fontSize);
     }
     
-    DrawLine(startX, startY, endX, endY, color_ptr) {        
+    DrawLine(startX, startY, endX, endY, color_ptr) {
         const buffer = this.wasm.instance.exports.memory.buffer;
         const color = getColorFromMemory(buffer, color_ptr);
         //[startX, startY] = this.applyCameraOffset(startX, startY); 
@@ -354,18 +381,79 @@ class RaylibJs {
         this.ctx.moveTo(startX, startY);
         this.ctx.lineTo(endX, endY);
         this.ctx.stroke();
+    }
+    //DrawTriangle(Vector2 v1, Vector2 v2, Vector2 v3, Color color); 
+    DrawTriangle(v1_ptr, v2_ptr, v3_ptr, color_ptr) {
+        const buffer = this.wasm.instance.exports.memory.buffer;
+        const [x1, y1] = new Float32Array(buffer, v1_ptr, 2);
+        const [x2, y2] = new Float32Array(buffer, v2_ptr, 2);
+        const [x3, y3] = new Float32Array(buffer, v3_ptr, 2);
+        const color = getColorFromMemory(buffer, color_ptr);
         
+        this.ctx.beginPath();
+        this.ctx.fillStyle = color;
+        this.ctx.moveTo(x1, y1);
+        this.ctx.lineTo(x2, y2);
+        this.ctx.lineTo(x3, y3);
+        this.ctx.fill();
+    }
+    
+    CheckCollisionCircleRec(pos_ptr, radius, rect_ptr) {
+        const buffer = this.wasm.instance.exports.memory.buffer;
+        const [c_x, c_y] = new Float32Array(buffer, pos_ptr, 2);
+        const [r_x, r_y, r_w, r_h] = new Float32Array(buffer, rect_ptr, 4);
+        
+        const recCenterX = r_x + r_w/2.0;
+        const recCenterY = r_y + r_h/2.0;
+        
+        const dx = Math.abs(c_x - recCenterX);
+        const dy = Math.abs(c_y - recCenterY);
+        
+        if (dx > (r_w/2.0 + radius)) return false;
+        if (dy > (r_h/2.0 + radius)) return false;
+        
+        if (dx < (r_w/2.0)) return true;
+        if (dy < (r_h/2.0)) return true;
+        
+        const distSqr = (dx - r_w/2.0) * (dx - r_w/2.0) + (dy - r_h/2.0) * (dy - r_h/2.0);
+        return distSqr <= radius*radius;
+        
+    }
+    CheckCollisionCircles(pos1_ptr, radius1, pos2_ptr, radius2) {
+        const buffer = this.wasm.instance.exports.memory.buffer;
+        const [x1, y1] = new Float32Array(buffer, pos1_ptr, 2);
+        const [x2, y2] = new Float32Array(buffer, pos2_ptr, 2);
+        
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        return dist <= (radius1 + radius2);
         
     }
 
     GetRandomValue(min, max) {
         return Math.floor(Math.random() * (max - min) ) + min;
     }
+    
+    asinf(value) {
+        return Math.asin(value);
+    }
+    
+    cosf(value) {
+        return Math.cos(value);
+    }
+    
+    sinf(value) {
+        return Math.sin(value);
+    }
 
     raylib_js_set_entry(entry) {
         this.entryFunction = this.wasm.instance.exports.__indirect_function_table.get(entry);
     }
 }
+
+const mouseButtonMapping = [0,2,1,3,4]; //maps the event.button to the RayLib button enum
 
 const glfwKeyMapping = {
     "Space":          32,
