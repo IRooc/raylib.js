@@ -343,6 +343,24 @@ class RaylibJs {
         this.ctx.font = fontSize+"px myfont";
         this.ctx.fillText(text, posX, posY + fontSize);
     }
+    
+    DrawLine(startX, startY, endX, endY, color_ptr) {        
+        const buffer = this.wasm.instance.exports.memory.buffer;
+        const color = getColorFromMemory(buffer, color_ptr);
+        //[startX, startY] = this.applyCameraOffset(startX, startY); 
+        //[endX, endY] = this.applyCameraOffset(endX, endY); 
+        this.ctx.beginPath();
+        this.ctx.strokeStyle = color;
+        this.ctx.moveTo(startX, startY);
+        this.ctx.lineTo(endX, endY);
+        this.ctx.stroke();
+        
+        
+    }
+
+    GetRandomValue(min, max) {
+        return Math.floor(Math.random() * (max - min) ) + min;
+    }
 
     raylib_js_set_entry(entry) {
         this.entryFunction = this.wasm.instance.exports.__indirect_function_table.get(entry);
