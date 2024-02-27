@@ -285,6 +285,15 @@ class RaylibJs {
         this.ctx.strokeRect(x + lineThick/2, y + lineThick/2, w - lineThick, h - lineThick);
     }
 
+    DrawRectangleLines(x, y, w, h, color_ptr) {
+        const buffer = this.wasm.instance.exports.memory.buffer;
+        const color = getColorFromMemory(buffer, color_ptr);
+        const  lineThick = 1;
+        this.ctx.strokeStyle = color;
+        this.ctx.lineWidth = lineThick;
+        this.ctx.strokeRect(x + lineThick/2, y + lineThick/2, w - lineThick, h - lineThick);
+    }
+
     MeasureText(text_ptr, fontSize) {
         const buffer = this.wasm.instance.exports.memory.buffer;
         const text = cstr_by_ptr(buffer, text_ptr);
@@ -316,11 +325,13 @@ class RaylibJs {
         var img = new Image();
         img.src = filename;
         this.images.push(img);
-
+        
+        var dimensions = getImageDimensions(filename);
+        console.log('image dimensions', dimensions);
         result[0] = this.images.indexOf(img);
         // TODO: get the true width and height of the image
-        result[1] = 256; // width
-        result[2] = 256; // height
+        result[1] = dimensions?.width  || 256; // width
+        result[2] = dimensions?.height ||256; // height
         result[3] = 1; // mipmaps
         result[4] = 7; // format PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
 
@@ -335,6 +346,19 @@ class RaylibJs {
         // const tint = getColorFromMemory(buffer, color_ptr);
 
         this.ctx.drawImage(this.images[id], posX, posY);
+    }
+    
+  //void DrawTextureRec(Texture2D texture, Rectangle source, Vector2 position, Color tint)
+    DrawTextureRec(texture_ptr, rec_ptr, position_ptr, color_ptr) {
+        const buffer = this.wasm.instance.exports.memory.buffer;
+        const [id, width, height, mipmaps, format] = new Uint32Array(buffer, texture_ptr, 5);
+        const [x, y, w, h] = new Float32Array(buffer, rec_ptr, 4);
+        const [px, py] = new Float32Array(buffer, position_ptr, 2);
+        // // TODO: implement tinting for DrawTexture
+        // const tint = getColorFromMemory(buffer, color_ptr);
+        
+        this.ctx.drawImage(this.images[id], x, y, w, h, px, py, w, h);
+        
     }
 
     // TODO: codepoints are not implemented
@@ -419,6 +443,7 @@ class RaylibJs {
         return distSqr <= radius*radius;
         
     }
+    
     CheckCollisionCircles(pos1_ptr, radius1, pos2_ptr, radius2) {
         const buffer = this.wasm.instance.exports.memory.buffer;
         const [x1, y1] = new Float32Array(buffer, pos1_ptr, 2);
@@ -614,4 +639,28 @@ function color_hex(color) {
 function getColorFromMemory(buffer, color_ptr) {
     const [r, g, b, a] = new Uint8Array(buffer, color_ptr, 4);
     return color_hex_unpacked(r, g, b, a);
+}
+
+function getImageDimensions(url) {
+    let xhr = new XMLHttpRequest();
+    xhr.overrideMimeType('text/plain; charset=x-user-defined');
+    xhr.open('GET', url, false); // False for synchronous request
+    xhr.send();
+    
+    if (xhr.status !== 200) {
+        throw new Error('Failed to fetch image: ' + xhr.status);
+    }
+    
+    let data = xhr.responseText;
+    if (data.substr(1, 3) === 'PNG') {    
+        let ihdr = data.indexOf('IHDR');
+        if (ihdr === -1) {
+            throw new Error('IHDR chunk not found');
+        }
+        var uint8 = Uint8Array.from(data.split("").map(x => x.charCodeAt()))
+        let width = uint8[ihdr + 4] << 24 | uint8[ihdr + 5] << 16 | uint8[ihdr + 6] << 8 | uint8[ihdr + 7];
+        let height = uint8[ihdr + 8] << 24 | uint8[ihdr + 9] << 16 | uint8[ihdr + 10] << 8 | uint8[ihdr + 11];
+        return { width, height };
+    }
+    throw new Error('Not a supported image');
 }
